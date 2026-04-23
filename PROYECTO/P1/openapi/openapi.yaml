@@ -1,0 +1,286 @@
+openapi: 3.0.3
+info:
+  title: SaludVital – API de Pre-registros de Pacientes
+  description: >
+    API REST para la evolución futura del proceso de integración entre el Sistema de Admisiones
+    y el Sistema de Facturación de la clínica SaludVital.
+    Permite consultar, registrar y validar pre-registros de pacientes en tiempo real,
+    eliminando la dependencia de archivos CSV para procesos que requieren inmediatez y trazabilidad.
+  version: 1.0.0
+  contact:
+    name: TI SaludVital
+
+servers:
+  - url: https://api.saludvital.com/v1
+    description: Servidor de producción
+  - url: http://localhost:8080/v1
+    description: Servidor local de desarrollo
+
+tags:
+  - name: pre-registros
+    description: Gestión de pre-registros de pacientes
+  - name: validacion
+    description: Validación de datos de pre-registro
+
+paths:
+
+  /pre-registros:
+    get:
+      tags: [pre-registros]
+      summary: Listar pre-registros del día
+      description: Retorna todos los pre-registros de pacientes para la fecha indicada. Si no se pasa fecha, retorna los del día actual.
+      parameters:
+        - name: fecha
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2026-04-22"
+          description: Fecha de consulta en formato YYYY-MM-DD
+        - name: estado
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDIENTE, PROCESADO, RECHAZADO]
+          description: Filtrar por estado del pre-registro
+      responses:
+        "200":
+          description: Lista de pre-registros obtenida correctamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fecha:
+                    type: string
+                    format: date
+                    example: "2026-04-22"
+                  total:
+                    type: integer
+                    example: 3
+                  preRegistros:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PreRegistro'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [pre-registros]
+      summary: Registrar un nuevo pre-registro
+      description: Crea un nuevo pre-registro de paciente en el Sistema de Admisiones. Retorna el registro creado con su ID asignado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreRegistroRequest'
+            example:
+              patientId: "P-1001"
+              fullName: "Ana Pérez"
+              appointmentDate: "2026-05-10"
+              insuranceCode: "IESS"
+      responses:
+        "201":
+          description: Pre-registro creado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreRegistro'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "409":
+          description: Conflicto — ya existe un pre-registro para ese paciente en esa fecha
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "DUPLICATE_REGISTRO"
+                mensaje: "Ya existe un pre-registro para el paciente P-1001 en la fecha 2026-05-10"
+        "500":
+          $ref: '#/components/responses/InternalServerError'
+
+  /pre-registros/{patientId}:
+    get:
+      tags: [pre-registros]
+      summary: Obtener pre-registro por ID de paciente
+      description: Retorna el pre-registro más reciente asociado al paciente indicado.
+      parameters:
+        - name: patientId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "P-1001"
+          description: Identificador único del paciente
+      responses:
+        "200":
+          description: Pre-registro encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreRegistro'
+        "404":
+          description: No se encontró pre-registro para el paciente indicado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "REGISTRO_NOT_FOUND"
+                mensaje: "No se encontró pre-registro para el paciente P-9999"
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          $ref: '#/components/responses/InternalServerError'
+
+  /pre-registros/validar:
+    post:
+      tags: [validacion]
+      summary: Validar datos de un pre-registro sin persistirlo
+      description: >
+        Valida que los datos de un pre-registro cumplan todas las reglas de negocio
+        (formato de fecha, código de seguro, campos obligatorios) sin crear el registro.
+        Útil para validación en tiempo real desde el formulario del Sistema de Admisiones.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreRegistroRequest'
+      responses:
+        "200":
+          description: Resultado de la validación
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valido:
+                    type: boolean
+                    example: false
+                  errores:
+                    type: array
+                    items:
+                      type: string
+                    example:
+                      - "appointmentDate: formato inválido '10/05/2026' (esperado YYYY-MM-DD)"
+                      - "insuranceCode: valor 'ABC' no permitido (IESS, PRIVADO, NINGUNO)"
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+
+  schemas:
+
+    PreRegistro:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Identificador único del pre-registro
+          example: "PRE-20260422-001"
+        patientId:
+          type: string
+          example: "P-1001"
+        fullName:
+          type: string
+          example: "Ana Pérez"
+        appointmentDate:
+          type: string
+          format: date
+          example: "2026-05-10"
+        insuranceCode:
+          type: string
+          enum: [IESS, PRIVADO, NINGUNO]
+          example: "IESS"
+        estado:
+          type: string
+          enum: [PENDIENTE, PROCESADO, RECHAZADO]
+          example: "PENDIENTE"
+        creadoEn:
+          type: string
+          format: date-time
+          example: "2026-04-22T10:30:15Z"
+
+    PreRegistroRequest:
+      type: object
+      required: [patientId, fullName, appointmentDate, insuranceCode]
+      properties:
+        patientId:
+          type: string
+          example: "P-1001"
+        fullName:
+          type: string
+          example: "Ana Pérez"
+        appointmentDate:
+          type: string
+          format: date
+          example: "2026-05-10"
+        insuranceCode:
+          type: string
+          enum: [IESS, PRIVADO, NINGUNO]
+          example: "IESS"
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "REGISTRO_NOT_FOUND"
+        mensaje:
+          type: string
+          example: "Descripción del error"
+
+  responses:
+    BadRequest:
+      description: Solicitud inválida — campos faltantes o mal formados
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "INVALID_REQUEST"
+            mensaje: "El campo appointmentDate es obligatorio"
+
+    Unauthorized:
+      description: No autorizado — token ausente o inválido
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "UNAUTHORIZED"
+            mensaje: "Token Bearer inválido o expirado"
+
+    InternalServerError:
+      description: Error interno del servidor
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "INTERNAL_ERROR"
+            mensaje: "Error inesperado. Contacte al equipo de TI."
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: []

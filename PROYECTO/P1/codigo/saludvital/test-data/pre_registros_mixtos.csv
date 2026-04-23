@@ -1,0 +1,4 @@
+patient_id,full_name,appointment_date,insurance_code
+P-3001,Sofia Vega,2026-05-10,IESS
+P-3002,,2026-05-11,PRIVADO
+P-3003,Juan Torres,2026-05-12,NINGUNO
